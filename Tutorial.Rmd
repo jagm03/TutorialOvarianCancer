@@ -1,0 +1,730 @@
+---
+title: "Human ovarian cancer"
+author: "Jonatan A. González"
+date: '2023-05-09'
+geometry: margin = 2cm
+fontsize: 11pt
+output: pdf_document
+classoption: a4paper
+header-includes:
+ - \usepackage{mathrsfs}
+---
+
+```{r setup, include=FALSE, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(spatstat)
+library(ggplot2)
+library(sf)
+library(spdep)
+library(GET, quietly = T)
+library(doParallel)
+library(sparr)
+library(lmtest)
+library(gee)
+```
+
+```{r, echo=FALSE}
+#Loading data-frame of ovarian cancer
+load("\Data\CancerData.RData")
+```
+
+
+Since several types of phenotypes characterize immune cells, namely CD19+, CD8+, CD3+ and C68+, we must consider all those with at least one positive phenotype. For this, we consider in separate categories those with only one, those with two, and those with 3 and 4, obtaining a number of total categories given by 
+
+
+```{r, eval=FALSE, echo = FALSE}
+immunes <- function(DataSet){
+  CD8 <- with(DataSet, ifelse((phenotype_cd3 == "CD3+") & (phenotype_cd8 == "CD8+") &
+                                (phenotype_cd68 == "CD68-") & (phenotype_cd19 == "CD19-"), 
+                              "CD8-T-cells", ""))
+  
+  CD4 <- with(DataSet, ifelse((phenotype_cd3 == "CD3+") & (phenotype_cd8 == "CD8-") &
+                                (phenotype_cd68 == "CD68-") & (phenotype_cd19 == "CD19-"), 
+                              "CD4-T-cells", ""))
+  
+  CD19 <- with(DataSet, ifelse(phenotype_cd19 == "CD19+", "B-cells", ""))
+  CD68 <- with(DataSet, ifelse((phenotype_cd68 == "CD68+") & (phenotype_cd19 != "CD19+"), "Macrophages", ""))
+  
+  Immune <- as.factor(trimws(paste0(CD8, CD4, CD19, CD68)))
+  levels(Immune)[1] <- "exposed"
+  DataSet$Immune <- Immune
+  R1 <- subset(DataSet, Immune != "exposed")
+  R1$Immune <- droplevels(R1$Immune)
+  phenos <- c("phenotype_cd19", "phenotype_cd8", "phenotype_cd3", "phenotype_cd68")
+  R1 <- R1[, !(names(R1) %in% phenos)]
+  return(R1)
+}
+
+Tumour <- immunes(ovarian_df)
+S <- unique(Tumour$sample_id)
+```
+
+We create point patterns erasing those subjects that have more than two types of immune cells present in stroma and tumour tissues.
+```{r, eval=FALSE, echo = FALSE}
+Dpatterns <- function(Index) {
+  A <- subset(Tumour, (sample_id == Index) & (tissue_category != "Glass"))
+  #A$Immune <- droplevels(A$Immune)
+  Wo <- ripras(x = ovarian_df$x[ovarian_df$sample_id == Index], 
+               y = ovarian_df$y[ovarian_df$sample_id == Index])
+  #A1 <- subset(A, tissue_category == "Tumor")
+  PP <- unique.ppp(ppp(x = A$x, y = A$y, window = Wo, 
+                       marks = data.frame(Immune = A$Immune, 
+                                          Tissue = as.factor(A$tissue_category),
+                                          ck = A$ck, ki67 = A$ki67, cd8 = A$cd8,
+                                          ier3 = A$ier3, pstat3= A$pstat3,
+                                          cd3 = A$cd3, cd68 = A$cd68, dapi = A$dapi)),
+                   rule = "unmark")
+  NN <- sapply(levels(PP$marks$Immune), 
+               function(Y) {npoints(subset.ppp(PP, PP$marks$Immune == Y))})
+  PP1 <- subset.ppp(PP, PP$marks$Immune %in% names(which(NN > 8)))
+  PP1$marks$Immune <- droplevels(PP1$marks$Immune)
+  attr(PP1, "Index") <- Index
+  attr(PP1, "primary") <- A$primary[1]
+  attr(PP1, "recurrent") <- A$recurrent[1]
+  attr(PP1, "chemo") <- A$treatment_effect[1]
+  attr(PP1, "stage") <- A$stage[1]
+  attr(PP1, "grade") <- A$grade[1]
+  attr(PP1, "survival_months") <- A$survival_time[1]
+  attr(PP1, "death") <- A$death[1]
+  attr(PP1, "BRCA_mutation") <- A$BRCA_mutation[1]
+  attr(PP1, "age_diagnosis") <- A$age_at_diagnosis[1]
+  attr(PP1, "time_recurrence") <- A$time_to_recurrence[1]
+  attr(PP1, "parpi_inhibitor") <- A$parpi_inhibitor[1]
+  attr(PP1, "debulking") <- A$debulking[1]
+  tissuedes <- as.numeric(summary(PP1$marks$Tissue))
+   if ((all(tissuedes > 10)) & (length(tissuedes) > 1) & 
+       (length(levels(PP1$marks$Immune)) == 4))
+    return(PP1)
+  else
+    return(NULL)
+}
+
+PP <- lapply(S, Dpatterns)
+PP[sapply(PP, is.null)] <- NULL
+PP <- as.solist(PP, .NameBase = "Patient")
+names(PP) <- paste0("Patient_", 1:length(PP))
+#names(PP) <- S
+Cells <- hyperframe(pp = PP)
+```
+
+
+```{r}
+#Plotting RIPRAS
+PPh <- rpoint(n = 25, win = Cells$pp$`8`$window)
+ConvHull <- convexhull(PPh)
+Ripra <- ripras(PPh)
+
+PPh1 <- PPh
+Window(PPh1) <- ConvHull
+PPh2 <- PPh
+Window(PPh2) <- Ripra
+
+par(mar = c(0, 0, 0, 0), mfrow = c(1, 2))
+plot(PPh1, use.marks = F, main = "")
+plot(PPh2, use.marks = F, main = "")
+plot.owin(add= T, ConvHull)
+```
+
+
+Here we have a sample of a patient where we display the tumour cells and colour the different immune types.
+```{r, fig.align='center', fig.width=10, fig.height=4, echo=FALSE}
+#plot(PP[c(1,5,16,23,26,33,38, 52, 70, 75, 85, 90)], cols = 1:15, main ="", cex = 0.3, which.marks = "Immune")
+#plot(PP, cols = 1:15, main ="", cex = 0.3, which.marks = "Immune", ncols = 5, mar.panel=c(1,1,1,2))
+#pdf(file = "f1_sample.pdf", width = 10, height = 5)
+plot(PP[c(4, 11, 27, 50)], cols = 1:4, main ="", cex = 0.2, which.marks = "Immune", main.panel = "", 
+     ncols = 2, mar.panel=c(0.5,0,0,0.4), equal.ribbon=TRUE, equal.scales = T, legend = F, mar = c(0,0,0,0)) #7x7.3
+legend("bottom", inset=.00,
+       legend = levels(PP$Patient_1$marks$Immune), 
+       col=1:4, horiz=TRUE, cex=0.8, pch = 1:4)
+#dev.off()
+par(mar = c(0, 0, 0, 0))
+#plot(unmark(Cells$pp$`6`), main = "Patient 6", pch = 16, cex = 0.4, cols = "black")
+plot(Cells$pp$`6`, main  = "", which.marks = c("Immune", "Tissue"), cex = 0.4, 
+     cols = yarrr::piratepal("pony", trans = .6), pch = 16, ncols = 1, leg.args= list(cex = 0.4))
+```
+
+# A regression analysis of immune cell counts
+
+Let $n_{ij}$ denote the numbers of immune cells for the $j$th subject in the $i$th group $(i = 1,2)$. For analysing possible density changes, a Poisson log-linear model for the expected cell counts could be used taking into account the possible overdispersion of the data. Unequal sampling areas $A_{ij}$ are considered as fixed offsets in model.
+
+<!-- Timetorecurrence is deprecated as is there are patients with no recurrence -->
+<!-- debulking is deprecated as is there are patients with no value -->
+
+```{r, echo = FALSE}
+NpointsC <- function(PPP){
+  Index <- expand.grid(Immune = levels(PPP$marks$Immune), Tissue = levels(PPP$marks$Tissue))
+  fi <- function(Y, Z) {npoints(subset.ppp(PPP, 
+                                           (PPP$marks$Immune == Y) & (PPP$marks$Tissue == Z)))}
+  nijk <- unlist(Map(f = fi, Y = Index$Immune, Z = Index$Tissue))
+  Index$nijk <- nijk
+  Index$Offnijk <- npoints(PPP)
+  Index$Aij <- rep(log(area(PPP)), length(nijk))
+  Index$ID <- factor(rep(attributes(PPP)$"Index", length(nijk)))
+  Index$primary <- factor(rep(attributes(PPP)$"primary", length(nijk)), 
+                          levels = 0:1, labels = c("No","Yes"))
+  #Index$recurrent <- factor(rep(attributes(PPP)$"recurrent", length(nijk)), 
+  #                          levels = 0:1, labels = c("No","Yes"))
+  Index$chemo <- factor(rep(attributes(PPP)$"chemo", length(nijk)), levels = 0:1, 
+                        labels = c("No","Yes"))
+  Index$stage <- factor(as.numeric(rep(attributes(PPP)$"stage", length(nijk))), 
+                        levels = 1:4, labels = c("I","II", "III", "IV"))
+  Index$survival_months <- rep(attributes(PPP)$"survival_months", length(nijk))
+  Index$death <- factor(rep(attributes(PPP)$"death", length(nijk)), levels = 0:1, 
+                        labels = c("No","Yes"))
+  Index$BRCA_mutation <- factor(rep(attributes(PPP)$"BRCA_mutation", length(nijk)), 
+                         levels = 0:1, labels = c("No","Yes"))
+  Index$age_diagnosis <- rep(attributes(PPP)$"age_diagnosis", length(nijk))
+  #Index$time_recurrence <- as.numeric(rep(attributes(PPP)$"time_recurrence", length(nijk)))
+  Index$parpi_inhibitor <- factor(rep(attributes(PPP)$"parpi_inhibitor", length(nijk)))
+  #Index$debulking <- factor(rep(attributes(PPP)$"debulking", length(nijk)))
+  return(Index)
+}
+
+NN <- do.call('rbind', with(Cells, NpointsC(pp)))
+NN$parpi_inhibitor <- relevel(NN$parpi_inhibitor, ref = "N")
+#N <- glm(nijk ~Immune + Tissue + offset(Aij) + primary + chemo + stage + survival_months + death + 
+#           BRCA_mutation + age_diagnosis + parpi_inhibitor , family = "quasipoisson", data = NN)
+
+N <- glmer(nijk~Immune * Tissue + offset(Offnijk) + primary + chemo + stage + survival_months + death + 
+           BRCA_mutation + age_diagnosis + parpi_inhibitor  + (1 | ID) , family = negative.binomial(theta = 353), data = NN)
+#
+
+coeftest(N, vcov = sandwich)
+
+N2 <- gee(nijk ~ Immune + Tissue + offset(log(Offnijk / Aij)) +  primary + chemo + stage + BRCA_mutation + age_diagnosis + parpi_inhibitor + death, 
+         data = NN, id = ID, corstr = "unstructured", family = "poisson")
+
+AA <- as.data.frame(2 * pnorm(abs(coef(summary(N2))[,5]), lower.tail = FALSE))
+names(AA) <- "P"
+AA$condition <- ifelse((AA$P<= 0.01)& (AA$P >0.00) , "YES", "NO")
+```
+
+```{r}
+library(ggeffects) # version 1.2.0
+plot(ggemmeans(N, terms = c("Tissue", "Immune")))
+```
+
+
+
+```{r, eval=FALSE, echo = FALSE}
+summary(N)
+#library(texreg)
+#texreg(N)
+confint(N)
+```
+
+# Multitype point patterns
+
+In this case, we need to analyse point patterns consisting of several different types of points, and they are called multitype point patterns. Such patterns are usually presented as marked point patterns with categorical marks. A point process $\mathbf{Y}$ is split into several sub-processes of types $1,...m,$ denoted by $\mathbf{X}^{(1)},\ldots,\mathbf{X}^{(m)}$. Every functional descriptor can be calculated for each point pattern $X^{(j)}$.
+
+# First-order intensity functions
+The first-order intensity function describes the expected value of points of some kind anywhere in the observation window. There are several techniques to calculate it; the non-parametric methods are the most used in the context of point processes. 
+
+We employ an adaptive kernel estimator defined as follows,
+$$
+\hat{\lambda}_{j}\left(\mathbf{u}\right) =\frac{1}{e \left(\mathbf{u}\right) }\sum_{i=1}^{n}{\kappa_{\epsilon(\mathbf{u}_i)}\left(\mathbf{u}-\mathbf{u}_{i}\right)},\qquad \mathbf{u} \in W, j=1,\ldots m,
+$$
+where $\kappa()$ is the Gaussian kernel and $e()$ represents an edge correction factor and it is given by
+$$
+e \left(\mathbf{u}\right)  = \int_{W} \kappa_{\epsilon(\mathbf{u'})}\left(\mathbf{u}-\mathbf{u'}\right) d \mathbf{u'}.
+$$
+The bandwidth function $\epsilon()$ is defined as
+$$
+\epsilon(\mathbf{u})=\frac{\epsilon^{\star}}{\gamma} \sqrt{\frac{n}{\lambda^{\star}_j(\mathbf{u})}},
+$$
+where $\epsilon^{\star}$ is a *global bandwidths*, $\lambda^{\star}_j(\mathbf{u})$ is a pilot estimate of the intensity, and $\gamma$ is the geometric mean term for the pilot intensity evaluated in the points of the point pattern. We calculate the global bandwidths by using Scott's isotropic rule. The pilot estimate is the usual fixed bandwidth $(\epsilon^{\star})$ kernel estimate.
+
+# ```{r, eval=FALSE, echo = FALSE}
+# #bw.h0 <- mean(sapply(PP, bw.scott.iso))
+# ```
+
+
+```{r, eval=FALSE, echo  = FALSE}
+intenI <- function(PPP, h0 = NULL, Marks = "Immune"){
+  Index <- levels(PPP$marks[[Marks]])
+  In <- mclapply(Index, function(Y) {
+    densityAdaptiveKernel.ppp(subset(PPP, PPP$marks[[Marks]] == Y), h0 = h0)}, 
+    mc.cores = 50)
+  names(In) <- Index
+  return(as.solist(In))
+}
+
+Cells$Lambda.I <- with(Cells, intenI(pp, h0 = NULL, Marks = "Immune"))
+Cells$Lambda.T <- with(Cells, intenI(pp, h0 = NULL, Marks = "Tissue"))
+Cells$Lambda.bullet <- with(Cells, densityAdaptiveKernel.ppp(pp))
+```
+
+The next figure displays samples of the intensities of the subprocesses of points of type immune and exposed.
+```{r, fig.align='center', fig.width=10, fig.height=3, echo=FALSE}
+plot((Cells$Lambda.I$`6`[c(1,2,3,4)]), #9x3
+     col = hcl.colors(256, "Spectral"), 
+     box = F, ncols = 4,
+     mar.panel=c(0,1,1,0.4), main = "", equal.ribbon = T, panel.end = Cells$pp$`6`$window)
+```
+
+The superposition intensity is defined as the intensity of the point pattern regardless the types of points, i.e., 
+$$
+\lambda_{\bullet} = \sum_{j=i}^m \lambda_j.
+$$
+
+Therefore, we can speak of the probability distribution of types. The probability
+that a typical point belongs to type $m$ is 
+$$
+p_m(m|\mathbf{u}) = \frac{\lambda_m(\mathbf{u})}{\lambda_{\bullet}(\mathbf{u})}
+$$
+as long as $\lambda_{\bullet}(\mathbf{u})$ is not zero.
+```{r, eval=FALSE, echo = FALSE}
+Cells$P.I <- with(Cells, relrisk(unmark(pp) %mark% pp$marks$Immune, diggle = T))
+```
+
+```{r, fig.align='center', result.width='100%', fig.width=9, echo=FALSE}
+par(mfrow = c(2, 1)) #9x3in
+plot(Cells$P.I$`6`[1:4], col = hcl.colors(256, "Roma"), box = F, ncols = 4,
+     mar.panel=c(0,1,1,0.4), main = "", equal.ribbon = T, panel.end = Cells$pp$`6`$window)
+```
+
+```{r, eval=FALSE, echo = FALSE}
+Cells$Dominant <- with(Cells, im.apply(P.I, which.max))
+Cells$Dominant <- with(Cells, eval.im(factor(Dominant, levels = 1:4, labels = levels(pp$marks$Immune))))
+```
+
+```{r, fig.align='center', result.width='100%', fig.width=8, echo=FALSE}
+par(mar = c(0, 0, 0, 0))
+textureplot(Cells$Dominant$`6`, box = F, main = "") #6.75 x 3.5
+```
+
+```{r, eval=FALSE, echo = FALSE}
+Segregation <- mclapply(Cells$pp, function(x) {segregation.test.ppp(unmark(x) %mark% x$marks$Immune, 
+                                                                  nsim = 999, verbose = F, diggle = F, sigma = 77)}, mc.cores = 30)
+PVA <- p.adjust(sapply(Segregation,"[[", "p.value"), "bonferroni")
+```
+
+```{r, eval=FALSE, echo = FALSE, warning=FALSE}
+Cells$pstat3 <- with(Cells, Smooth.ppp(unmark(pp) %mark% ppPVA$marks$pstat3, diggle = T, warn = F, dimyx = 256))
+Cells$ier3 <- with(Cells, Smooth.ppp(unmark(pp) %mark% pp$marks$ier3, diggle = T, warn = F, dimyx = 256))
+```
+
+```{r, fig.align='center', result.width='100%', fig.width=9, echo=FALSE}
+#par(mfrow = c(2, 1)) #9x1.9in
+plot(Cells$pstat3[c(4, 11, 27, 48, 50)], col = hcl.colors(256, "Berlin"), 
+     box = F, main = "",equal.ribbon = F, ncols =5,
+     main.panel = "")
+plot(Cells$ier3[c(4, 11, 27, 48, 50)], col = hcl.colors(256, "Tofino", rev = T), 
+     box = F, main = "",equal.ribbon = F, ncols =5,
+     main.panel = "")
+```
+
+
+```{r, eval=FALSE, echo = FALSE}
+rrisk <- function(X){
+  #PP <- unmark(X) %mark% X$marks$Tissue
+  QQ <- unmark(X) %mark% X$marks$Immune
+  #Tissue
+  #Tumour <- split(PP)$Tumor
+  #Stroma <- split(PP)$Stroma
+  QQ1 <- split(QQ)
+  Combi <- combn(4, 2, simplify = F)
+  
+  h0 <- OS(QQ, nstar = "geometric")
+  hp <- OS(QQ) / 2
+  
+  RR <- function(c) {risk(f = QQ1[[c[1]]], g = QQ1[[c[2]]], h0 = h0, hp = hp, 
+                          adapt = T, tolerate = T, pilot.symmetry = "pooled", verbose = F)}
+  RR1 <- lapply(Combi, RR)
+  return(RR1)
+}
+
+#rrTissue <- mclapply(Cells$pp, rrisk, mc.cores = 4, mc.preschedule = F)
+rrTissue <- rrisk(Cells$pp$`1`)
+```
+
+```{r, fig.align='center', result.width='100%', fig.width=9, fig.height=3,, echo=FALSE}
+par(mfrow = c(1, 6), mar = c(0,0,2,2.5)) #10.5 x 1.7
+for (i in 1:6) {
+  plot(rrTissue[[i]], col = hcl.colors(256, "OrRd", rev = T), tol.type = "two.sided", 
+     auto.axes = F, main = combn(levels(Cells$pp$`6`$marks$Immune), 2)[,i])
+}
+
+```
+
+# Second-order analysis
+
+When there is only one type of points, the second-order properties of a point process determine whether the points appear to have been placed independently of each other, or whether they exhibit some kind of interpoint dependence, i.e., they describe the covariance or correlation among points. 
+
+When there are points of different types, it second-order analysis measures the dependence or association between types. In this case we analyse the joint distribution of points and labels $\pi(X,M)$; i.e., regard the locations and types as having been generated at the same time.
+	
+## Ripley's $K$-function
+
+### Univariate case
+One of the most popular second-order descriptors is Ripley's $K$-function.  We can use Ripley's $K$-function in its inhomogeneous version, meaning that we have non-constant intensities along with the observation window, it is given by
+$$
+K_{ii}(r) = K(r) = \mathbb{E}\left[\left. \sum_{\mathbf{u}_k \in X^{(i)}}\frac{1}{\lambda_i(\mathbf{u}_k)} \mathbf{1}\{||\mathbf{u}-\mathbf{u}_k||\leq r\}  \right| \mathbf{u}\in \mathbf{X}^{(i)}\right],
+$$
+provided that this value does not depend on the choice of the location $\mathbf{u}$ and where $r$ belongs to a suitably chosen range $T=(0,r_0]$. For homogeneous Poisson processes, the $K$-function is $K(r) = \pi r^2$. Homogeneous Poisson processes are the archetype of complete spatial random processes (CSR). A natural estimator for the $K$-function is given by
+$$
+\hat{K}(r)=\frac{1}{|W|} \sum_{i=1}^{n}\sum_{j \neq i} \frac{\mathbf{1} \{||\mathbf{u}_i-\mathbf{u}_j|| \leq r\}}{\hat{\lambda}(\mathbf{u}_j)\hat{\lambda}(\mathbf{u}_i)}w(\mathbf{u}_i, \mathbf{u}_j;r),
+$$
+where $|\cdot|$ is, in this case, the area of the set, and $w(\mathbf{u}, \mathbf{v};r)$ is an edge-correction weight. Note that we removed the type subindex above in order to simplify the notation. It is known that the variance of the $K$-function is roughly proportional to $\pi r^2$; so a more friendly descriptor called $L$-function and it is defined as,
+$$
+L(r) := \sqrt{K(r)/ \pi},
+$$
+and it intends to stabilize the variance of the $K$.
+
+```{r, eval=FALSE, echo = FALSE}
+Rmax <- min(with(Cells, rmax.rule("K", W = pp$window, lambda = intensity(pp))))
+r0 <- seq(0, Rmax, length.out = 150)
+Cells$Lfun <- with(Cells, Linhom(pp, correction = "translate", r = r0, 
+                                 lambda = Lambda.bullet, unitname = "microns"))
+Lfuns <- collapse.fv(Cells$Lfun, same = c("r", "theo"), different = "trans")
+```
+
+The centred $L$- functions $(L(r)-r)$ of the point patterns of immune cells look like
+```{r, fig.align='center', fig.width=5, fig.height=4, echo=FALSE}
+plot(Lfuns, . - r ~ r, legend = F, ylab = "Inhomogeneous centred L", main = "", lwd = 0.5)
+```
+The plot shows some slight departures from complete spatial randomness, i.e., systematic deviations from the theoretical value (the complete spatial randomness $L(r)-r=0$), being the inhibition behaviour prevalent at upper half distances. We can see some negative outliers, some patients with inhibition behaviour in their cell distribution. Notice that this interpretation does not correspond to statistical inference and is just a plot reading.
+
+### Multivariate case
+
+$$
+K_{ij}(r) = \mathbb{E}\left[\left. \sum_{\mathbf{u}_k \in X^{(j)}}\frac{1}{\lambda_j(\mathbf{u}_k)} \mathbf{1}\{||\mathbf{u}-\mathbf{u}_k||\leq r\}  \right| \mathbf{u}\in \mathbf{X}^{(i)}\right],
+$$
+With its estimator given by
+$$
+\hat{K}_{ij}(r)=\frac{1}{|W|} \sum_{\mathbf{u}_{\ell}\in X^{(i)}} \sum_{\mathbf{u}_{k}\in X^{(j)}} \frac{\mathbf{1} \{||\mathbf{u}_{\ell}-\mathbf{u}_k|| \leq r\}}{\hat{\lambda}_i(\mathbf{u}_{\ell})\hat{\lambda}_j(\mathbf{u}_k)}w(\mathbf{u}_{\ell}, \mathbf{u}_k;r),
+$$
+
+```{r, eval = FALSE, echo = FALSE}
+LpatientTissue <- function(PP1, II){
+  PPP <- unmark(PP1) %mark% PP1$marks$Tissue
+  #Type <- levels(PP$marks)
+  EstimKCross0 <- Lcross.inhom(PPP, i = "Stroma", j = "Tumor",
+                               lambdaI = II$Stroma, lambdaJ = II$Tumor,
+                               correction = "translate", r = r0)
+   #attr(LC, "fname") <- paste(Labels, sep = "_")
+  #attr(EstimKCross0, "units") <- "microns"
+
+  EstimHyper <- hyperframe(Lcross = list(EstimKCross0), 
+                           #Tissue = as.factor(Type),
+                           primary = factor(attributes(PP1)$"primary",
+                                            levels = 0:1, labels = c("No", "Yes")),
+                           chemo = factor(attributes(PP1)$"chemo", 
+                                          levels = 0:1, labels = c("No","Yes")),
+                           stage = factor(as.numeric(attributes(PP1)$"stage"), 
+                                           levels = 1:4, labels = c("I","II", "III", "IV")),
+                           death = factor(attributes(PP1)$"death", 
+                                           levels = 0:1, labels = c("No","Yes")),
+                           #BRCA_mutation = factor(attributes(PP1)$"BRCA_mutation", 
+                            #                       levels = 0:1, labels = c("No","Yes")),
+                           parpi_inhibitor = factor(attributes(PP1)$"parpi_inhibitor"),
+                           debulking = factor(attributes(PP1)$"debulking"))
+  #EstimHyper$Lcross <- list(EstimKCross0)
+  return(list(LCrossTissue = EstimKCross0, HyperTissue = EstimHyper))
+}
+LmultiTissue <- with(Cells, LpatientTissue(pp, Lambda.T))
+Cells$LmultiTissue <- lapply(LmultiTissue, '[[','LCrossTissue')
+BigHyperTissue <- do.call('rbind', lapply(LmultiTissue, '[[', 'HyperTissue'))
+```
+
+The cross $L$-functions (centred by subtracting $r$) of all point patterns are displayed in the next figure,
+```{r, fig.align='center', fig.width=5, fig.height=4, echo=FALSE}
+AlltissuesK <- collapse.fv(Cells$LmultiTissue, same = c("r", "theo"), different = "trans")
+#par(mfrow = c(2, 2))
+plot(AlltissuesK, . - r ~ r, legend = F, 
+     ylab = "Inhomogeneous centred cross L", main = "Tumour vs Stroma", lwd = 0.5)
+```
+
+This drawing shows us a much more exciting behaviour than when we do not consider the interaction between points. It shows us an overall inhibition between the tumour's immune cells and the stroma's immune cells. This result could be due to the fact that the tissues are usually separated within the ovary; however, we have taken into account the first-order intensity to carry out the estimation, which, in theory, would eliminate that geographical component.
+
+```{r, eval = FALSE, echo = FALSE}
+Lpatient <- function(PP1, II){
+  PP <- unmark(PP1) %mark% PP1$marks$Immune
+  Type <- levels(PP$marks)
+  Combi <- combn(Type, 2, simplify = F)
+  L.Cross <- function(Labels){
+   LC <- Lcross.inhom(PP, i = Labels[1], j = Labels[2], 
+                      lambdaI = II[[Labels[1]]], lambdaJ = II[[Labels[2]]],
+                      correction = "translate", r = r0)
+   #attr(LC, "fname") <- paste(Labels, sep = "_")
+   attr(LC, "units") <- "microns"
+   return(LC)
+  }
+  EstimKCross0 <- lapply(Combi, L.Cross)
+  EstimHyper <- hyperframe(Lcross = EstimKCross0, 
+                           Cells = as.factor(sapply(Combi, function(x) paste(x[1], x[2], 
+                                                                             sep = "_"))),
+                           chemo = factor(rep(attributes(PP1)$"chemo", length(Combi)), 
+                                          levels = 0:1, labels = c("No","Yes")),
+                           stage = factor(rep(as.numeric(attributes(PP1)$"stage"), 
+                                              length(Combi)), 
+                                           levels = 1:4, labels = c("I","II", "III", "IV")),
+                           death = factor(rep(attributes(PP1)$"death", length(Combi)), 
+                                           levels = 0:1, labels = c("No","Yes")),
+                           #BRCA_mutation = factor(rep(attributes(PP1)$"BRCA_mutation",, 
+                          #                            length(Combi)), 
+                          #                         levels = 0:1, labels = c("No","Yes")),
+                           parpi_inhibitor = factor(rep(attributes(PP1)$"parpi_inhibitor", 
+                                                        length(Combi))))
+                           #debulking <- factor(rep(attributes(PP1)$"debulking", length(Combi))))
+  
+  EstimKCross <- collapse.fv(EstimKCross0, same = c("r", "theo"), different = "trans")
+  return(list(EstimKCross = EstimKCross, EstimHyper = EstimHyper, levs = Combi))
+}
+LmultiMarker <- with(Cells, Lpatient(pp, Lambda.I))
+Cells$LmultiMarker <- lapply(LmultiMarker, '[[','EstimKCross')
+BigHyperMarker <- do.call('rbind', lapply(LmultiMarker, '[[', 'EstimHyper'))
+```
+
+The cross $L$-functions (centred by subtracting $r$) of the point patterns are displayed in the next figure,
+```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=5, echo=FALSE}
+par(mfrow = c(3, 3), oma = c(3.5, 1.5, 0, 1), mar = c(1.5,1,3,1)) #9x6in
+Nnames <- sapply(LmultiMarker$`1`$levs, function(a) paste(a[1], a[2]))
+for (i in sort(sample(51, 9))) {
+  plot(Cells$LmultiMarker[[i]], . - r ~ r, legend = F,
+       ylab = "", main = paste("Patient",i), lwd = 0.7)
+}
+par(fig = c(0, 1, 0, 1), oma = c(0, 0, 0, 0), mar = c(0, 0, 0, 0), new = TRUE)
+plot(0, 0, type = 'l', bty = 'n', xaxt = 'n', yaxt = 'n')
+legend("bottom", inset=.00,
+       legend = Nnames, col=2:7, horiz=T, cex=.80, lty = 2:7)
+```
+
+In this case, as in the previous one, the functions show departures from the independence negatively, meaning that there is some inhibitory behaviour behind the first-order intensity, i.e., some repulsion between types. This means that despite some cases, we observe that immune cell types repel each other at small distances (from 100 to 300$\mu$m in general).
+
+The cross $L$-functions (centred by subtracting $r$) of the point patterns are displayed in the next figure,
+```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=4, echo=FALSE}
+KijC0 <- function(Level){
+  collapse.fv(BigHyperMarker$Lcross[BigHyperMarker$Cells == Level], 
+              same = c("r", "theo"), different = "trans")
+}
+
+L0 <- unique(BigHyperMarker$Cells)
+KijC1 <- lapply(L0, KijC0)
+
+par(mfrow = c(2, 3), oma = c(1.5, 1.5, 0, 1), mar = c(1.5,1,2,1))
+for (i in 1:6) { #9x4.5in
+  plot(KijC1[[i]], .-r ~ r, legend = F, #ylim = c(-300,50),
+     ylab = "", main = "", col = c(1, rep(i+1, 51)), lty = c(1, rep(2, 51)), lwd = .5)
+  legend("bottomleft", bty = "n", #inset=.00,
+       legend = L0[i], col=i+1, horiz=T, cex=0.9, lty = 2)
+}
+```
+
+```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=4, echo=FALSE}
+Kall <- alltypes(rescale(unmark(Cells$pp$`1`) %mark% Cells$pp$`1`$marks$Immune), 
+                 fun = "Lcross.inhom")
+
+plot(Kall)
+```
+
+
+From this linear model, we can conclude that there are more CD68+ immune-type cells than any other type and cells with CD8+ and CD3+ markers are slightly elevated compared to others. Now, cells with CD8+ CD3+ CD668+ markers are less frequent than the reference level, that is, CD19+. There is more density of immune cells in the tumour tissue than in the stroma, and although the months of survival turned out to be moderately significant, the coefficient is so small that it does not seem to matter within the model.
+
+
+```{r, eval = FALSE, echo = FALSE}
+Jpatient <- function(PP1, II){
+  PP <- unmark(PP1) %mark% PP1$marks$Immune
+  Type <- levels(PP$marks)
+  Combi <- combn(Type, 2, simplify = F)
+  J.Cross <- function(Labels){
+    ii <- (marks(PP) == Labels[1])
+    jj <- (marks(PP) == Labels[2])
+    lambdai <- safelookup(II[[Labels[1]]], PP[ii])
+    lambdaj <- safelookup(II[[Labels[2]]], PP[jj])
+    JC <- Jmulti.inhom(PP, I = ii, J = jj, r = r0, lambdaI = lambdai, 
+                       lambdaJ = lambdaj, lambdamin = min(lambdaj) / 1.1)
+   #attr(LC, "fname") <- paste(Labels, sep = "_")
+   attr(JC, "units") <- "microns"
+   return(JC)
+  }
+  EstimJCross0 <- lapply(Combi, J.Cross)
+  EstimHyper <- hyperframe(Jcross = EstimJCross0)
+  EstimJCross <- collapse.fv(EstimJCross0, same = c("r", "theo"), different = "bord")
+  return(list(EstimJCross = EstimJCross, EstimHyper = EstimHyper, levs = Combi))
+}
+JmultiMarker <- with(Cells, Jpatient(pp, Lambda.I))
+Cells$JmultiMarker <- lapply(JmultiMarker, '[[','EstimJCross')
+BigHyperMarkerJ <- do.call('rbind', lapply(JmultiMarker, '[[', 'EstimHyper'))
+BigHyperMarker$Jcross <- BigHyperMarkerJ$Jcross
+rm(BigHyperMarkerJ)
+```
+
+
+The cross $J$-functions are displayed in the next figure,
+```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=4, echo=FALSE}
+JijC0 <- function(Level){
+  collapse.fv(BigHyperMarker$Jcross[BigHyperMarker$Cells == Level], 
+              same = c("r", "theo"), different = "bord")
+}
+
+JijC1 <- lapply(L0, JijC0)
+
+par(mfrow = c(2, 3), oma = c(1.5, 1.5, 0, 1), mar = c(1.5,1,2,1))
+for (i in 1:6) { #9x4.5in
+  plot(JijC1[[i]], legend = F, #ylim = c(-300,50),
+     ylab = "", main = "", col = c(1, rep(i+1, 51)), lty = c(1, rep(2, 51)), lwd = .5)
+  legend("topleft", bty = "n", #inset=.00,
+       legend = L0[i], col=i+1, horiz=T, cex=0.9, lty = 2)
+}
+```
+
+```{r}
+# independence for just a point pattern
+Ex1 <- unmark(Cells$pp$`3`)
+marks(Ex1) <- data.frame(Immune = Cells$pp$`3`$marks$Immune, 
+                         Li = safelookup(Cells$Lambda.I$`3`[[3]], Ex1),
+                         Lj = safelookup(Cells$Lambda.I$`3`[[4]], Ex1))
+II <- levels(Ex1$marks$Immune)[3]
+JJ <- levels(Ex1$marks$Immune)[4]
+W0 <- erosion.owin(Ex1$window, r = 350)
+
+
+JI <- function(X, Ii, Jj, r = NULL, W1 = W0){
+  #X <- Xa[erosion(Xa$window, r = 300)]
+  X <- X[W1]
+  li <- X$marks$Li[X$marks$Immune == Ii]
+  lj <- X$marks$Lj[X$marks$Immune == Jj]
+  lm <- min(li, lj) / 1.1
+  Jcross.inhom(unmark(X) %mark% (X$marks$Immune), i = Ii, j = Jj, 
+               lambdaI = li, lambdaJ = lj, lambdamin = lm, r=r)
+}
+
+E34 <- envelope(Ex1, JI, funargs = list(Ii = II, Jj= JJ, r = r0),
+              simulate = expression(rshift(Ex1, radius = 350, edge = "erode")), 
+              nsim = 2999, savefuns = T)
+
+Eget12 <- rank_envelope(E12, type = "rank")
+Eget13 <- rank_envelope(E13, type = "rank")
+Eget14 <- rank_envelope(E14, type = "rank")
+Eget23 <- rank_envelope(E23, type = "rank")
+Eget24 <- rank_envelope(E24, type = "rank")
+Eget34 <- rank_envelope(E34, type = "rank")
+```
+```{r}
+EE0 <- rbind(E12, E13, E14, E23, E24, E34)
+PV0 <- sapply(list(Eget12, Eget13, Eget14, Eget23, Eget24, Eget34), function(x) attr(x, "p"))
+LL <- c(paste0(levels(Ex1$marks)[1],", ", levels(Ex1$marks)[2], " (p-value:", round(PV0[1], 2),")"),
+        paste0(levels(Ex1$marks)[1],", ", levels(Ex1$marks)[3], " (p-value:", round(PV0[2], 2),")"),
+        paste0(levels(Ex1$marks)[1],", ", levels(Ex1$marks)[4], " (p-value:", round(PV0[3], 2),")"),
+        paste0(levels(Ex1$marks)[2],", ", levels(Ex1$marks)[3], " (p-value:", round(PV0[4], 2),")"),
+        paste0(levels(Ex1$marks)[2],", ", levels(Ex1$marks)[4], " (p-value:", round(PV0[5], 2),")"),
+        paste0(levels(Ex1$marks)[3],", ", levels(Ex1$marks)[4], " (p-value:", round(PV0[6], 2),")"))
+
+EE0$Cells <- factor(rep(1:6, rep(513, 6)), levels = 1:6, labels = LL) 
+EE0$ptest <- ifelse(((EE0$obs < EE0$lo) | (EE0$obs > EE0$hi)), 1, 0)
+
+EE0$ptest <- factor(EE0$ptest, levels = 0:1, labels = c("out", "in"))
+
+#8x4.5
+ggplot(EE0) + geom_ribbon(aes(x = r, ymin = lo, ymax = hi), alpha = .3) + 
+  facet_wrap( ~ Cells, ncol = 3, scales = "free") +
+  geom_path(aes(x = r, y = obs, col = ptest, group = 1)) +
+  scale_color_manual(values=c("black", "red"))+
+  geom_line(aes(x = r, y = mmean), linetype = "dashed", col = "black", linewidth = 0.2)+
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.title = element_blank())
+```
+
+
+```{r}
+# Random labelling
+Ex1 <- unmark(Cells$pp$`3`) %mark% Cells$pp$`3`$marks$Immune
+Li <- safelookup(Cells$Lambda.I$`3`[[4]], Ex1)
+Ld <- safelookup(Cells$Lambda.bullet$`3`, Ex1)
+II <- levels(Ex1$marks)[4]
+li <- Li[Ex1$marks == II]
+lm <- min(Ld) / 1.1
+
+JR <- function(X, Ii, r = NULL){
+  Jidot <- Jdot.inhom(X, i = Ii, lambdaI = li, lambdadot = Ld, lambdamin = lm, r=r)
+  J <- Jinhom(unmark(X), lambda = Ld, lmin = lm, r = Jidot$r)
+  dif <- eval.fv(Jidot - J)
+  return(dif)
+}
+
+E4 <- envelope(Ex1, JR, funargs = list(Ii = II, r = r0),
+              simulate = expression(rlabel(Ex1)), 
+              nsim = 2999, savefuns = T)
+
+Rget1 <- rank_envelope(E1, type = "rank")
+Rget2 <- rank_envelope(E2, type = "rank")
+Rget3 <- rank_envelope(E3, type = "rank")
+Rget4 <- rank_envelope(E4, type = "rank")
+```
+
+```{r}
+EE <- rbind(E1, E2, E3, E4)
+PV1 <- sapply(list(Rget1, Rget2, Rget3, Rget4), function(x) attr(x, "p"))
+EE$Cells <- factor(rep(1:4, rep(513, 4)), levels = 1:4, 
+                   labels = paste(levels(Ex1$marks),"(p-value:", round(PV1, 5),")")) 
+EE$ptest <- ifelse(((EE$obs < EE$lo) | (EE$obs > EE$hi)), 1, 0)
+EE$ptest <- factor(EE$ptest, levels = 0:1, labels = c("out", "in"))
+
+#7x4.5
+ggplot(EE) + geom_ribbon(aes(x = r, ymin = lo, ymax = hi), alpha = .3) + 
+  facet_wrap( ~ Cells, ncol = 2) +
+  geom_path(aes(x = r, y = obs, col = ptest, group = 1)) +
+  scale_color_manual(values=c("black", "red"))+
+  geom_line(aes(x = r, y = mmean), linetype = "dashed", col = "black", linewidth = 0.2)+
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.title = element_blank())
+```
+
+# One-way graphical functional ANOVA
+
+## Comparing interactions between cell types
+
+Now, we want to answer this question:
+
+- **Adjusting for density, do all types of immune cells interact in the same way?**
+
+We use the same statistic with bivariate $L$-functions, we want to test in this case
+$$
+H_0: \bar{L}_{\text{CD19+ vs CD3+}}(r) =\ldots= \bar{L}_{\text{CD19+ vs CD68+}}(r).
+$$
+
+For testing this hypothesis, we consider the following test statistic $S_{ij},$
+$$
+S_{\ell k}(r)= \frac{L_{\ell k}(r) - \bar{L}_{k}(r)}{\sqrt{\text{Var}_{k}(L(r))}}{\sqrt{\text{Var}(L(r))}} + \bar{L}_k(r), 
+$$
+where $\ell=1,\ldots,M,$ where $M$ is the number of points in which the interval $(0,r_0)$ is discretised $k =1,\ldots,15.$ This statistic is designed to compare group means but to alleviate unequal variances, which we have in this case as we have different observation windows and numbers of points along with different point patterns. The group sample mean $\bar{L}_k(r)$ and overall sample variance $\text{Var}(L(r))$ are intended keep the mean and variability of the functions at the original scale. The group sample variance $\text{Var}(L_k(r))$ corrects the unequal variances.
+
+We can apply a rank envelope test by permuting the observations in a non-parametric one-way ANOVA fashion; i.e., permuting the functional samples across the different groups. We set 10,000 random permutations and got the following results,
+
+
+```{r, eval = FALSE, echo = FALSE}
+Cells$stage <- with(Cells, attr(pp, "stage"))
+Cells$chemo <- with(Cells, attr(pp, "chemo"))
+Cells$death <- with(Cells, attr(pp, "death"))
+#Cells$BCRA <- with(Cells, attr(pp, "BRCA_mutation"))
+Lci <- sapply(Cells$Lfun, function(x) {
+  U <- as.data.frame(x)
+  return(U$trans - U$theo)})
+Lciget <- create_curve_set(list(r = r0, obs = Lci))
+LciMu <- graph.fanova(nsim = 50000, curve_set = Lciget, 
+                      groups = factor(Cells$stage, levels = 1:4, labels=c("I","II","III","IV")),
+                      #groups = factor(Cells$chemo, levels = 0:1, labels = c("No","Yes")),
+                      #groups = factor(Cells$death, levels = 0:1, labels = c("No","Yes")),
+                      #variances = "unequal", n.aver = 30, mirror = T, savefuns = F, 
+                      contrasts = F, 
+                      typeone = "fwer",
+                      test.equality = "mean")
+LcA <- plot(LciMu)
+```
+
+
+```{r, eval = FALSE, echo = FALSE}
+plot(LcA) + theme_bw() + 
+  theme(axis.title.x = element_blank(),
+        legend.position = c(0.1, 0.12)) #5.7x8.8
+
+#Variane
+library(latex2exp)
+plot(LcA) + theme_bw() + ylab(TeX("$\\hat{\\sigma}_i(r)$"))+
+  ggtitle("Homoscedasticity test: p = 0.101")+
+  theme(axis.title.x = element_blank(),
+        legend.position = "none") #5.7x7.2
+```
+
