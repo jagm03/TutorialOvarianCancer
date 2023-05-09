@@ -24,137 +24,42 @@ library(gee)
 ```
 
 ```{r, echo=FALSE}
-#Loading data-frame of ovarian cancer
-load("\Data\CancerData.RData")
+#Loading ovarian cancer data
+load("Data/CancerData.RData")
 ```
 
+# Ploting some tissue samples
 
-Since several types of phenotypes characterize immune cells, namely CD19+, CD8+, CD3+ and C68+, we must consider all those with at least one positive phenotype. For this, we consider in separate categories those with only one, those with two, and those with 3 and 4, obtaining a number of total categories given by 
-
-
-```{r, eval=FALSE, echo = FALSE}
-immunes <- function(DataSet){
-  CD8 <- with(DataSet, ifelse((phenotype_cd3 == "CD3+") & (phenotype_cd8 == "CD8+") &
-                                (phenotype_cd68 == "CD68-") & (phenotype_cd19 == "CD19-"), 
-                              "CD8-T-cells", ""))
-  
-  CD4 <- with(DataSet, ifelse((phenotype_cd3 == "CD3+") & (phenotype_cd8 == "CD8-") &
-                                (phenotype_cd68 == "CD68-") & (phenotype_cd19 == "CD19-"), 
-                              "CD4-T-cells", ""))
-  
-  CD19 <- with(DataSet, ifelse(phenotype_cd19 == "CD19+", "B-cells", ""))
-  CD68 <- with(DataSet, ifelse((phenotype_cd68 == "CD68+") & (phenotype_cd19 != "CD19+"), "Macrophages", ""))
-  
-  Immune <- as.factor(trimws(paste0(CD8, CD4, CD19, CD68)))
-  levels(Immune)[1] <- "exposed"
-  DataSet$Immune <- Immune
-  R1 <- subset(DataSet, Immune != "exposed")
-  R1$Immune <- droplevels(R1$Immune)
-  phenos <- c("phenotype_cd19", "phenotype_cd8", "phenotype_cd3", "phenotype_cd68")
-  R1 <- R1[, !(names(R1) %in% phenos)]
-  return(R1)
-}
-
-Tumour <- immunes(ovarian_df)
-S <- unique(Tumour$sample_id)
-```
-
-We create point patterns erasing those subjects that have more than two types of immune cells present in stroma and tumour tissues.
-```{r, eval=FALSE, echo = FALSE}
-Dpatterns <- function(Index) {
-  A <- subset(Tumour, (sample_id == Index) & (tissue_category != "Glass"))
-  #A$Immune <- droplevels(A$Immune)
-  Wo <- ripras(x = ovarian_df$x[ovarian_df$sample_id == Index], 
-               y = ovarian_df$y[ovarian_df$sample_id == Index])
-  #A1 <- subset(A, tissue_category == "Tumor")
-  PP <- unique.ppp(ppp(x = A$x, y = A$y, window = Wo, 
-                       marks = data.frame(Immune = A$Immune, 
-                                          Tissue = as.factor(A$tissue_category),
-                                          ck = A$ck, ki67 = A$ki67, cd8 = A$cd8,
-                                          ier3 = A$ier3, pstat3= A$pstat3,
-                                          cd3 = A$cd3, cd68 = A$cd68, dapi = A$dapi)),
-                   rule = "unmark")
-  NN <- sapply(levels(PP$marks$Immune), 
-               function(Y) {npoints(subset.ppp(PP, PP$marks$Immune == Y))})
-  PP1 <- subset.ppp(PP, PP$marks$Immune %in% names(which(NN > 8)))
-  PP1$marks$Immune <- droplevels(PP1$marks$Immune)
-  attr(PP1, "Index") <- Index
-  attr(PP1, "primary") <- A$primary[1]
-  attr(PP1, "recurrent") <- A$recurrent[1]
-  attr(PP1, "chemo") <- A$treatment_effect[1]
-  attr(PP1, "stage") <- A$stage[1]
-  attr(PP1, "grade") <- A$grade[1]
-  attr(PP1, "survival_months") <- A$survival_time[1]
-  attr(PP1, "death") <- A$death[1]
-  attr(PP1, "BRCA_mutation") <- A$BRCA_mutation[1]
-  attr(PP1, "age_diagnosis") <- A$age_at_diagnosis[1]
-  attr(PP1, "time_recurrence") <- A$time_to_recurrence[1]
-  attr(PP1, "parpi_inhibitor") <- A$parpi_inhibitor[1]
-  attr(PP1, "debulking") <- A$debulking[1]
-  tissuedes <- as.numeric(summary(PP1$marks$Tissue))
-   if ((all(tissuedes > 10)) & (length(tissuedes) > 1) & 
-       (length(levels(PP1$marks$Immune)) == 4))
-    return(PP1)
-  else
-    return(NULL)
-}
-
-PP <- lapply(S, Dpatterns)
-PP[sapply(PP, is.null)] <- NULL
-PP <- as.solist(PP, .NameBase = "Patient")
-names(PP) <- paste0("Patient_", 1:length(PP))
-#names(PP) <- S
-Cells <- hyperframe(pp = PP)
-```
-
-
-```{r}
-#Plotting RIPRAS
-PPh <- rpoint(n = 25, win = Cells$pp$`8`$window)
-ConvHull <- convexhull(PPh)
-Ripra <- ripras(PPh)
-
-PPh1 <- PPh
-Window(PPh1) <- ConvHull
-PPh2 <- PPh
-Window(PPh2) <- Ripra
-
-par(mar = c(0, 0, 0, 0), mfrow = c(1, 2))
-plot(PPh1, use.marks = F, main = "")
-plot(PPh2, use.marks = F, main = "")
-plot.owin(add= T, ConvHull)
-```
-
-
-Here we have a sample of a patient where we display the tumour cells and colour the different immune types.
+Here we have a sample of a patient where we display the tumour cells and colour 
+the different immune types.
 ```{r, fig.align='center', fig.width=10, fig.height=4, echo=FALSE}
-#plot(PP[c(1,5,16,23,26,33,38, 52, 70, 75, 85, 90)], cols = 1:15, main ="", cex = 0.3, which.marks = "Immune")
-#plot(PP, cols = 1:15, main ="", cex = 0.3, which.marks = "Immune", ncols = 5, mar.panel=c(1,1,1,2))
-#pdf(file = "f1_sample.pdf", width = 10, height = 5)
-plot(PP[c(4, 11, 27, 50)], cols = 1:4, main ="", cex = 0.2, which.marks = "Immune", main.panel = "", 
-     ncols = 2, mar.panel=c(0.5,0,0,0.4), equal.ribbon=TRUE, equal.scales = T, legend = F, mar = c(0,0,0,0)) #7x7.3
+# Plotting Immune cells
+plot(DataCells[c(4, 11, 27, 50)], cols = 1:4, main ="", cex = 0.2, 
+     which.marks = "Immune", main.panel = "", ncols = 2, mar.panel=c(0.5,0,0,0.4), 
+     equal.ribbon=TRUE, equal.scales = T, legend = F, mar = c(0,0,0,0)) #7x7.3
 legend("bottom", inset=.00,
-       legend = levels(PP$Patient_1$marks$Immune), 
+       legend = levels(DataCells$`1`$marks$Immune), 
        col=1:4, horiz=TRUE, cex=0.8, pch = 1:4)
-#dev.off()
+
+# Plotting Immune and Tissue cells
 par(mar = c(0, 0, 0, 0))
-#plot(unmark(Cells$pp$`6`), main = "Patient 6", pch = 16, cex = 0.4, cols = "black")
-plot(Cells$pp$`6`, main  = "", which.marks = c("Immune", "Tissue"), cex = 0.4, 
-     cols = yarrr::piratepal("pony", trans = .6), pch = 16, ncols = 1, leg.args= list(cex = 0.4))
+plot(DataCells$`6`, main  = "", which.marks = c("Immune", "Tissue"), cex = 0.4, 
+     cols = yarrr::piratepal("pony", trans = .6), pch = 16, ncols = 1, 
+     leg.args= list(cex = 0.4))
 ```
 
 # A regression analysis of immune cell counts
 
-Let $n_{ij}$ denote the numbers of immune cells for the $j$th subject in the $i$th group $(i = 1,2)$. For analysing possible density changes, a Poisson log-linear model for the expected cell counts could be used taking into account the possible overdispersion of the data. Unequal sampling areas $A_{ij}$ are considered as fixed offsets in model.
-
-<!-- Timetorecurrence is deprecated as is there are patients with no recurrence -->
-<!-- debulking is deprecated as is there are patients with no value -->
+Let $n_{ij}$ denote the numbers of immune cells for the $j$th subject in the $i$th group $(i = 1,2)$. For analysing possible density changes, a Poisson log-linear model for the expected cell counts could be used taking into account the possible overdispersion of the data.
 
 ```{r, echo = FALSE}
+#Function for building a dataset with patient outcomes
 NpointsC <- function(PPP){
-  Index <- expand.grid(Immune = levels(PPP$marks$Immune), Tissue = levels(PPP$marks$Tissue))
-  fi <- function(Y, Z) {npoints(subset.ppp(PPP, 
-                                           (PPP$marks$Immune == Y) & (PPP$marks$Tissue == Z)))}
+  Index <- expand.grid(Immune = levels(PPP$marks$Immune), 
+                       Tissue = levels(PPP$marks$Tissue))
+  fi <- function(Y, Z) {npoints(subset.ppp(PPP,
+                                           (PPP$marks$Immune == Y) & 
+                                             (PPP$marks$Tissue == Z)))}
   nijk <- unlist(Map(f = fi, Y = Index$Immune, Z = Index$Tissue))
   Index$nijk <- nijk
   Index$Offnijk <- npoints(PPP)
@@ -162,56 +67,38 @@ NpointsC <- function(PPP){
   Index$ID <- factor(rep(attributes(PPP)$"Index", length(nijk)))
   Index$primary <- factor(rep(attributes(PPP)$"primary", length(nijk)), 
                           levels = 0:1, labels = c("No","Yes"))
-  #Index$recurrent <- factor(rep(attributes(PPP)$"recurrent", length(nijk)), 
-  #                          levels = 0:1, labels = c("No","Yes"))
   Index$chemo <- factor(rep(attributes(PPP)$"chemo", length(nijk)), levels = 0:1, 
                         labels = c("No","Yes"))
   Index$stage <- factor(as.numeric(rep(attributes(PPP)$"stage", length(nijk))), 
                         levels = 1:4, labels = c("I","II", "III", "IV"))
-  Index$survival_months <- rep(attributes(PPP)$"survival_months", length(nijk))
   Index$death <- factor(rep(attributes(PPP)$"death", length(nijk)), levels = 0:1, 
                         labels = c("No","Yes"))
   Index$BRCA_mutation <- factor(rep(attributes(PPP)$"BRCA_mutation", length(nijk)), 
                          levels = 0:1, labels = c("No","Yes"))
   Index$age_diagnosis <- rep(attributes(PPP)$"age_diagnosis", length(nijk))
-  #Index$time_recurrence <- as.numeric(rep(attributes(PPP)$"time_recurrence", length(nijk)))
   Index$parpi_inhibitor <- factor(rep(attributes(PPP)$"parpi_inhibitor", length(nijk)))
-  #Index$debulking <- factor(rep(attributes(PPP)$"debulking", length(nijk)))
   return(Index)
 }
 
-NN <- do.call('rbind', with(Cells, NpointsC(pp)))
-NN$parpi_inhibitor <- relevel(NN$parpi_inhibitor, ref = "N")
-#N <- glm(nijk ~Immune + Tissue + offset(Aij) + primary + chemo + stage + survival_months + death + 
-#           BRCA_mutation + age_diagnosis + parpi_inhibitor , family = "quasipoisson", data = NN)
+NN <- do.call('rbind', lapply(DataCells, NpointsC))
+```
 
-N <- glmer(nijk~Immune * Tissue + offset(Offnijk) + primary + chemo + stage + survival_months + death + 
-           BRCA_mutation + age_diagnosis + parpi_inhibitor  + (1 | ID) , family = negative.binomial(theta = 353), data = NN)
-#
 
-coeftest(N, vcov = sandwich)
-
-N2 <- gee(nijk ~ Immune + Tissue + offset(log(Offnijk / Aij)) +  primary + chemo + stage + BRCA_mutation + age_diagnosis + parpi_inhibitor + death, 
+```{r, echo = FALSE}
+#Gee model
+N2 <- gee(nijk ~ Immune + Tissue + offset(log(Offnijk / Aij)) +  primary + 
+            chemo + stage + BRCA_mutation + age_diagnosis + parpi_inhibitor + death, 
          data = NN, id = ID, corstr = "unstructured", family = "poisson")
+summary(N2)
+```
 
+To obtain p-values, we proceed as follows
+```{r}
 AA <- as.data.frame(2 * pnorm(abs(coef(summary(N2))[,5]), lower.tail = FALSE))
 names(AA) <- "P"
-AA$condition <- ifelse((AA$P<= 0.01)& (AA$P >0.00) , "YES", "NO")
+AA
 ```
 
-```{r}
-library(ggeffects) # version 1.2.0
-plot(ggemmeans(N, terms = c("Tissue", "Immune")))
-```
-
-
-
-```{r, eval=FALSE, echo = FALSE}
-summary(N)
-#library(texreg)
-#texreg(N)
-confint(N)
-```
 
 # Multitype point patterns
 
