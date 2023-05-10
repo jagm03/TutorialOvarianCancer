@@ -30,8 +30,8 @@ load("Data/CancerData.RData")
 
 # Ploting some tissue samples
 
-Here we have a sample of a patient where we display the tumour cells and colour 
-the different immune types.
+Here we have a sample of a patient where we display the tumour cells and colour the different immune types.
+
 ```{r, fig.align='center', fig.width=10, fig.height=4, echo=FALSE}
 # Plotting Immune cells
 plot(DataCells[c(4, 11, 27, 50)], cols = 1:4, main ="", cex = 0.2, 
@@ -83,7 +83,6 @@ NpointsC <- function(PPP){
 NN <- do.call('rbind', lapply(DataCells, NpointsC))
 ```
 
-
 ```{r, echo = FALSE}
 #Gee model
 N2 <- gee(nijk ~ Immune + Tissue + offset(log(Offnijk / Aij)) +  primary + 
@@ -93,18 +92,19 @@ summary(N2)
 ```
 
 To obtain p-values, we proceed as follows
+
 ```{r}
 AA <- as.data.frame(2 * pnorm(abs(coef(summary(N2))[,5]), lower.tail = FALSE))
 names(AA) <- "P"
 AA
 ```
 
-
 # Multitype point patterns
 
 In this case, we need to analyse point patterns consisting of several different types of points, and they are called multitype point patterns. Such patterns are usually presented as *marked point patterns* with categorical marks. A point process $\mathbf{X}$ is split into several sub-processes of types $1,...m,$ denoted by $\mathbf{X}^{(1)},\ldots,\mathbf{X}^{(m)}$. Every functional descriptor can be calculated for each point pattern $X^{(j)}$.
 
 # First-order intensity functions
+
 The first-order intensity function describes the expected value of points of some kind anywhere in the observation window. There are several techniques to calculate it; the non-parametric methods are the most used in the context of point processes. We employ an adaptive kernel estimator
 
 ```{r, eval=FALSE, echo = FALSE}
@@ -133,6 +133,7 @@ Cells$Lambda.bullet <- with(Cells, densityAdaptiveKernel.ppp(pp, bw = bw.h0))
 ```
 
 The next figure displays samples of the intensities of some immunity markers
+
 ```{r, fig.align='center', fig.width=10, fig.height=3, echo=FALSE}
 plot((Cells$Lambda.I$`6`[c(1,2,3,4)]), #9x3
      col = hcl.colors(256, "Spectral"), 
@@ -140,12 +141,12 @@ plot((Cells$Lambda.I$`6`[c(1,2,3,4)]), #9x3
      mar.panel=c(0,1,1,0.4), main = "", equal.ribbon = T, panel.end = Cells$pp$`6`$window)
 ```
 
-The superposition intensity is defined as the intensity of the point pattern regardless the types of points, i.e., 
-$$
+The superposition intensity is defined as the intensity of the point pattern regardless the types of points, i.e., $$
 \lambda_{\bullet} = \sum_{j=i}^m \lambda_j.
 $$
 
 Therefore, we can speak of the probability distribution of types.
+
 ```{r, eval=FALSE, echo = FALSE}
 # This is time consuming, approx 1 minute
 Cells$P.I <- with(Cells, relrisk(unmark(pp) %mark% pp$marks$Immune, diggle = T))
@@ -177,6 +178,7 @@ p.adjust(sapply(Segregation,"[[", "p.value"), "bonferroni")
 ```
 
 Now we smooth the continuous marks
+
 ```{r, eval=FALSE, echo = FALSE, warning=FALSE}
 Cells$pstat3 <- with(Cells, Smooth.ppp(unmark(pp) %mark% pp$marks$pstat3, diggle = T, warn = F))
 Cells$ier3 <- with(Cells, Smooth.ppp(unmark(pp) %mark% pp$marks$ier3, diggle = T, warn = F))
@@ -191,7 +193,9 @@ plot(Cells$ier3[c(4, 11, 27, 48, 50)], col = hcl.colors(256, "Tofino", rev = T),
      box = F, main = "",equal.ribbon = F, ncols =5,
      main.panel = "")
 ```
+
 For the relative risk we take a random tissue sample for illustration purposes as it is time consuming
+
 ```{r, eval=FALSE, echo = FALSE}
 rrisk <- function(X){
   QQ <- unmark(X) %mark% X$marks$Immune
@@ -237,6 +241,7 @@ Lfuns <- collapse.fv(Cells$Lfun, same = c("r", "theo"), different = "trans")
 ```
 
 The centred $L$- functions $(L(r)-r)$ of the point patterns of immune cells look like
+
 ```{r, fig.align='center', fig.width=5, fig.height=4, echo=FALSE}
 plot(Lfuns, . - r ~ r, legend = F, ylab = "Inhomogeneous centred L", main = "", lwd = 0.5)
 ```
@@ -244,6 +249,7 @@ plot(Lfuns, . - r ~ r, legend = F, ylab = "Inhomogeneous centred L", main = "", 
 ### Multivariate case
 
 We compute now the $L$-functions for Stroma vs Tumour tissues
+
 ```{r, eval = FALSE, echo = FALSE}
 LpatientTissue <- function(PP1, II){
   PPP <- unmark(PP1) %mark% PP1$marks$Tissue
@@ -271,6 +277,7 @@ BigHyperTissue <- do.call('rbind', lapply(LmultiTissue, '[[', 'HyperTissue'))
 ```
 
 The cross $L$-functions (centred by subtracting $r$) of all point patterns are displayed in the next figure,
+
 ```{r, fig.align='center', fig.width=5, fig.height=4, echo=FALSE}
 AlltissuesK <- collapse.fv(Cells$LmultiTissue, same = c("r", "theo"), different = "trans")
 plot(AlltissuesK, . - r ~ r, legend = F, 
@@ -278,6 +285,7 @@ plot(AlltissuesK, . - r ~ r, legend = F,
 ```
 
 We compute now the $L$-functions for immunity markers
+
 ```{r, eval = FALSE, echo = FALSE}
 Lpatient <- function(PP1, II){
   PP <- unmark(PP1) %mark% PP1$marks$Immune
@@ -311,8 +319,8 @@ Cells$LmultiMarker <- lapply(LmultiMarker, '[[','EstimKCross')
 BigHyperMarker <- do.call('rbind', lapply(LmultiMarker, '[[', 'EstimHyper'))
 ```
 
-
 The cross $L$-functions (centred by subtracting $r$) of the point patterns are displayed in the next figure,
+
 ```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=4, echo=FALSE}
 KijC0 <- function(Level){
   collapse.fv(BigHyperMarker$Lcross[BigHyperMarker$Cells == Level], 
@@ -335,7 +343,6 @@ for (i in 1:6) { #9x4.5in
 # Load J multitype inhomogeneous
 source("R/Jmulti.inhom.R")
 ```
-
 
 ```{r, eval = FALSE, echo = FALSE}
 Jpatient <- function(PP1, II){
@@ -365,8 +372,8 @@ BigHyperMarker$Jcross <- BigHyperMarkerJ$Jcross
 rm(BigHyperMarkerJ)
 ```
 
-
 The cross $J$-functions are displayed in the next figure,
+
 ```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=4, echo=FALSE}
 JijC0 <- function(Level){
   collapse.fv(BigHyperMarker$Jcross[BigHyperMarker$Cells == Level], 
@@ -412,11 +419,9 @@ E34 <- envelope(Ex1, JI, funargs = list(Ii = II, Jj= JJ, r = r0),
 Eget34 <- rank_envelope(E34, type = "rank")
 ```
 
-
 ```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=4, echo=FALSE}
 plot(Eget34)
 ```
-
 
 ```{r}
 # Random labelling
@@ -435,66 +440,29 @@ JR <- function(X, Ii, r = NULL){
 }
 
 E4 <- envelope(Ex1, JR, funargs = list(Ii = II, r = r0),
-              simulate = expression(rlabel(Ex1)), 
-              nsim = 2999, savefuns = T)
+               simulate = expression(rlabel(Ex1)), 
+               nsim = 99, savefuns = T)
 
-Rget1 <- rank_envelope(E1, type = "rank")
-Rget2 <- rank_envelope(E2, type = "rank")
-Rget3 <- rank_envelope(E3, type = "rank")
 Rget4 <- rank_envelope(E4, type = "rank")
 ```
 
-```{r}
-EE <- rbind(E1, E2, E3, E4)
-PV1 <- sapply(list(Rget1, Rget2, Rget3, Rget4), function(x) attr(x, "p"))
-EE$Cells <- factor(rep(1:4, rep(513, 4)), levels = 1:4, 
-                   labels = paste(levels(Ex1$marks),"(p-value:", round(PV1, 5),")")) 
-EE$ptest <- ifelse(((EE$obs < EE$lo) | (EE$obs > EE$hi)), 1, 0)
-EE$ptest <- factor(EE$ptest, levels = 0:1, labels = c("out", "in"))
-
-#7x4.5
-ggplot(EE) + geom_ribbon(aes(x = r, ymin = lo, ymax = hi), alpha = .3) + 
-  facet_wrap( ~ Cells, ncol = 2) +
-  geom_path(aes(x = r, y = obs, col = ptest, group = 1)) +
-  scale_color_manual(values=c("black", "red"))+
-  geom_line(aes(x = r, y = mmean), linetype = "dashed", col = "black", linewidth = 0.2)+
-  theme_bw()+
-  theme(legend.position = "none",
-        axis.title = element_blank())
+```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=4, echo=FALSE}
+plot(Rget4)
 ```
 
 # One-way graphical functional ANOVA
 
 ## Comparing interactions between cell types
 
-Now, we want to answer this question:
-
-- **Adjusting for density, do all types of immune cells interact in the same way?**
-
-We use the same statistic with bivariate $L$-functions, we want to test in this case
-$$
-H_0: \bar{L}_{\text{CD19+ vs CD3+}}(r) =\ldots= \bar{L}_{\text{CD19+ vs CD68+}}(r).
-$$
-
-For testing this hypothesis, we consider the following test statistic $S_{ij},$
-$$
-S_{\ell k}(r)= \frac{L_{\ell k}(r) - \bar{L}_{k}(r)}{\sqrt{\text{Var}_{k}(L(r))}}{\sqrt{\text{Var}(L(r))}} + \bar{L}_k(r), 
-$$
-where $\ell=1,\ldots,M,$ where $M$ is the number of points in which the interval $(0,r_0)$ is discretised $k =1,\ldots,15.$ This statistic is designed to compare group means but to alleviate unequal variances, which we have in this case as we have different observation windows and numbers of points along with different point patterns. The group sample mean $\bar{L}_k(r)$ and overall sample variance $\text{Var}(L(r))$ are intended keep the mean and variability of the functions at the original scale. The group sample variance $\text{Var}(L_k(r))$ corrects the unequal variances.
-
-We can apply a rank envelope test by permuting the observations in a non-parametric one-way ANOVA fashion; i.e., permuting the functional samples across the different groups. We set 10,000 random permutations and got the following results,
-
-
 ```{r, eval = FALSE, echo = FALSE}
 Cells$stage <- with(Cells, attr(pp, "stage"))
 Cells$chemo <- with(Cells, attr(pp, "chemo"))
 Cells$death <- with(Cells, attr(pp, "death"))
-#Cells$BCRA <- with(Cells, attr(pp, "BRCA_mutation"))
 Lci <- sapply(Cells$Lfun, function(x) {
   U <- as.data.frame(x)
   return(U$trans - U$theo)})
 Lciget <- create_curve_set(list(r = r0, obs = Lci))
-LciMu <- graph.fanova(nsim = 50000, curve_set = Lciget, 
+LciMu <- graph.fanova(nsim = 999, curve_set = Lciget, 
                       groups = factor(Cells$stage, levels = 1:4, labels=c("I","II","III","IV")),
                       #groups = factor(Cells$chemo, levels = 0:1, labels = c("No","Yes")),
                       #groups = factor(Cells$death, levels = 0:1, labels = c("No","Yes")),
@@ -502,20 +470,8 @@ LciMu <- graph.fanova(nsim = 50000, curve_set = Lciget,
                       contrasts = F, 
                       typeone = "fwer",
                       test.equality = "mean")
-LcA <- plot(LciMu)
 ```
 
-
-```{r, eval = FALSE, echo = FALSE}
-plot(LcA) + theme_bw() + 
-  theme(axis.title.x = element_blank(),
-        legend.position = c(0.1, 0.12)) #5.7x8.8
-
-#Variane
-library(latex2exp)
-plot(LcA) + theme_bw() + ylab(TeX("$\\hat{\\sigma}_i(r)$"))+
-  ggtitle("Homoscedasticity test: p = 0.101")+
-  theme(axis.title.x = element_blank(),
-        legend.position = "none") #5.7x7.2
+```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=4, echo=FALSE}
+plot(LciMu)
 ```
-
