@@ -132,7 +132,7 @@ Cells$Lambda.T <- with(Cells, intenI(pp, h0 = bw.h0, Marks = "Tissue"))
 Cells$Lambda.bullet <- with(Cells, densityAdaptiveKernel.ppp(pp, bw = bw.h0))
 ```
 
-The next figure displays samples of the intensities of the subprocesses of points of type immune and exposed.
+The next figure displays samples of the intensities of some immunity markers
 ```{r, fig.align='center', fig.width=10, fig.height=3, echo=FALSE}
 plot((Cells$Lambda.I$`6`[c(1,2,3,4)]), #9x3
      col = hcl.colors(256, "Spectral"), 
@@ -145,13 +145,9 @@ $$
 \lambda_{\bullet} = \sum_{j=i}^m \lambda_j.
 $$
 
-Therefore, we can speak of the probability distribution of types. The probability
-that a typical point belongs to type $m$ is 
-$$
-p_m(m|\mathbf{u}) = \frac{\lambda_m(\mathbf{u})}{\lambda_{\bullet}(\mathbf{u})}
-$$
-as long as $\lambda_{\bullet}(\mathbf{u})$ is not zero.
+Therefore, we can speak of the probability distribution of types.
 ```{r, eval=FALSE, echo = FALSE}
+# This is time consuming, approx 1 minute
 Cells$P.I <- with(Cells, relrisk(unmark(pp) %mark% pp$marks$Immune, diggle = T))
 ```
 
@@ -172,14 +168,18 @@ textureplot(Cells$Dominant$`6`, box = F, main = "") #6.75 x 3.5
 ```
 
 ```{r, eval=FALSE, echo = FALSE}
-Segregation <- mclapply(Cells$pp, function(x) {segregation.test.ppp(unmark(x) %mark% x$marks$Immune, 
-                                                                  nsim = 999, verbose = F, diggle = F, sigma = 77)}, mc.cores = 30)
-PVA <- p.adjust(sapply(Segregation,"[[", "p.value"), "bonferroni")
+# This is time consuming, approx. 3 minutes with 5 cores
+Segregation <- mclapply(Cells$pp, function(x) {
+  segregation.test.ppp(unmark(x) %mark% x$marks$Immune, nsim = 99, verbose = F, 
+                       diggle = F, sigma = bw.h0)}, 
+  mc.cores = detectCores() - 1)
+p.adjust(sapply(Segregation,"[[", "p.value"), "bonferroni")
 ```
 
+Now we smooth the continuous marks
 ```{r, eval=FALSE, echo = FALSE, warning=FALSE}
-Cells$pstat3 <- with(Cells, Smooth.ppp(unmark(pp) %mark% ppPVA$marks$pstat3, diggle = T, warn = F, dimyx = 256))
-Cells$ier3 <- with(Cells, Smooth.ppp(unmark(pp) %mark% pp$marks$ier3, diggle = T, warn = F, dimyx = 256))
+Cells$pstat3 <- with(Cells, Smooth.ppp(unmark(pp) %mark% pp$marks$pstat3, diggle = T, warn = F))
+Cells$ier3 <- with(Cells, Smooth.ppp(unmark(pp) %mark% pp$marks$ier3, diggle = T, warn = F))
 ```
 
 ```{r, fig.align='center', result.width='100%', fig.width=9, echo=FALSE}
@@ -191,15 +191,10 @@ plot(Cells$ier3[c(4, 11, 27, 48, 50)], col = hcl.colors(256, "Tofino", rev = T),
      box = F, main = "",equal.ribbon = F, ncols =5,
      main.panel = "")
 ```
-
-
+For the relative risk we take a random tissue sample for illustration purposes as it is time consuming
 ```{r, eval=FALSE, echo = FALSE}
 rrisk <- function(X){
-  #PP <- unmark(X) %mark% X$marks$Tissue
   QQ <- unmark(X) %mark% X$marks$Immune
-  #Tissue
-  #Tumour <- split(PP)$Tumor
-  #Stroma <- split(PP)$Stroma
   QQ1 <- split(QQ)
   Combi <- combn(4, 2, simplify = F)
   
@@ -212,8 +207,10 @@ rrisk <- function(X){
   return(RR1)
 }
 
-#rrTissue <- mclapply(Cells$pp, rrisk, mc.cores = 4, mc.preschedule = F)
-rrTissue <- rrisk(Cells$pp$`1`)
+RandPatient <- sample(1:51,1)
+
+#This is time consuming, approx. 3 minutes
+rrTissue <- rrisk(Cells$pp[[RandPatient]])
 ```
 
 ```{r, fig.align='center', result.width='100%', fig.width=9, fig.height=3,, echo=FALSE}
@@ -227,26 +224,9 @@ for (i in 1:6) {
 
 # Second-order analysis
 
-When there is only one type of points, the second-order properties of a point process determine whether the points appear to have been placed independently of each other, or whether they exhibit some kind of interpoint dependence, i.e., they describe the covariance or correlation among points. 
-
-When there are points of different types, it second-order analysis measures the dependence or association between types. In this case we analyse the joint distribution of points and labels $\pi(X,M)$; i.e., regard the locations and types as having been generated at the same time.
-	
 ## Ripley's $K$-function
 
 ### Univariate case
-One of the most popular second-order descriptors is Ripley's $K$-function.  We can use Ripley's $K$-function in its inhomogeneous version, meaning that we have non-constant intensities along with the observation window, it is given by
-$$
-K_{ii}(r) = K(r) = \mathbb{E}\left[\left. \sum_{\mathbf{u}_k \in X^{(i)}}\frac{1}{\lambda_i(\mathbf{u}_k)} \mathbf{1}\{||\mathbf{u}-\mathbf{u}_k||\leq r\}  \right| \mathbf{u}\in \mathbf{X}^{(i)}\right],
-$$
-provided that this value does not depend on the choice of the location $\mathbf{u}$ and where $r$ belongs to a suitably chosen range $T=(0,r_0]$. For homogeneous Poisson processes, the $K$-function is $K(r) = \pi r^2$. Homogeneous Poisson processes are the archetype of complete spatial random processes (CSR). A natural estimator for the $K$-function is given by
-$$
-\hat{K}(r)=\frac{1}{|W|} \sum_{i=1}^{n}\sum_{j \neq i} \frac{\mathbf{1} \{||\mathbf{u}_i-\mathbf{u}_j|| \leq r\}}{\hat{\lambda}(\mathbf{u}_j)\hat{\lambda}(\mathbf{u}_i)}w(\mathbf{u}_i, \mathbf{u}_j;r),
-$$
-where $|\cdot|$ is, in this case, the area of the set, and $w(\mathbf{u}, \mathbf{v};r)$ is an edge-correction weight. Note that we removed the type subindex above in order to simplify the notation. It is known that the variance of the $K$-function is roughly proportional to $\pi r^2$; so a more friendly descriptor called $L$-function and it is defined as,
-$$
-L(r) := \sqrt{K(r)/ \pi},
-$$
-and it intends to stabilize the variance of the $K$.
 
 ```{r, eval=FALSE, echo = FALSE}
 Rmax <- min(with(Cells, rmax.rule("K", W = pp$window, lambda = intensity(pp))))
@@ -260,30 +240,17 @@ The centred $L$- functions $(L(r)-r)$ of the point patterns of immune cells look
 ```{r, fig.align='center', fig.width=5, fig.height=4, echo=FALSE}
 plot(Lfuns, . - r ~ r, legend = F, ylab = "Inhomogeneous centred L", main = "", lwd = 0.5)
 ```
-The plot shows some slight departures from complete spatial randomness, i.e., systematic deviations from the theoretical value (the complete spatial randomness $L(r)-r=0$), being the inhibition behaviour prevalent at upper half distances. We can see some negative outliers, some patients with inhibition behaviour in their cell distribution. Notice that this interpretation does not correspond to statistical inference and is just a plot reading.
 
 ### Multivariate case
-
-$$
-K_{ij}(r) = \mathbb{E}\left[\left. \sum_{\mathbf{u}_k \in X^{(j)}}\frac{1}{\lambda_j(\mathbf{u}_k)} \mathbf{1}\{||\mathbf{u}-\mathbf{u}_k||\leq r\}  \right| \mathbf{u}\in \mathbf{X}^{(i)}\right],
-$$
-With its estimator given by
-$$
-\hat{K}_{ij}(r)=\frac{1}{|W|} \sum_{\mathbf{u}_{\ell}\in X^{(i)}} \sum_{\mathbf{u}_{k}\in X^{(j)}} \frac{\mathbf{1} \{||\mathbf{u}_{\ell}-\mathbf{u}_k|| \leq r\}}{\hat{\lambda}_i(\mathbf{u}_{\ell})\hat{\lambda}_j(\mathbf{u}_k)}w(\mathbf{u}_{\ell}, \mathbf{u}_k;r),
-$$
 
 ```{r, eval = FALSE, echo = FALSE}
 LpatientTissue <- function(PP1, II){
   PPP <- unmark(PP1) %mark% PP1$marks$Tissue
-  #Type <- levels(PP$marks)
   EstimKCross0 <- Lcross.inhom(PPP, i = "Stroma", j = "Tumor",
                                lambdaI = II$Stroma, lambdaJ = II$Tumor,
                                correction = "translate", r = r0)
-   #attr(LC, "fname") <- paste(Labels, sep = "_")
-  #attr(EstimKCross0, "units") <- "microns"
 
   EstimHyper <- hyperframe(Lcross = list(EstimKCross0), 
-                           #Tissue = as.factor(Type),
                            primary = factor(attributes(PP1)$"primary",
                                             levels = 0:1, labels = c("No", "Yes")),
                            chemo = factor(attributes(PP1)$"chemo", 
@@ -292,11 +259,8 @@ LpatientTissue <- function(PP1, II){
                                            levels = 1:4, labels = c("I","II", "III", "IV")),
                            death = factor(attributes(PP1)$"death", 
                                            levels = 0:1, labels = c("No","Yes")),
-                           #BRCA_mutation = factor(attributes(PP1)$"BRCA_mutation", 
-                            #                       levels = 0:1, labels = c("No","Yes")),
                            parpi_inhibitor = factor(attributes(PP1)$"parpi_inhibitor"),
                            debulking = factor(attributes(PP1)$"debulking"))
-  #EstimHyper$Lcross <- list(EstimKCross0)
   return(list(LCrossTissue = EstimKCross0, HyperTissue = EstimHyper))
 }
 LmultiTissue <- with(Cells, LpatientTissue(pp, Lambda.T))
