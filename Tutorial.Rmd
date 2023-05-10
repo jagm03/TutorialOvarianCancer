@@ -331,6 +331,11 @@ for (i in 1:6) { #9x4.5in
 }
 ```
 
+```{r}
+# Load J multitype inhomogeneous
+source("R/Jmulti.inhom.R")
+```
+
 
 ```{r, eval = FALSE, echo = FALSE}
 Jpatient <- function(PP1, II){
@@ -344,7 +349,6 @@ Jpatient <- function(PP1, II){
     lambdaj <- safelookup(II[[Labels[2]]], PP[jj])
     JC <- Jmulti.inhom(PP, I = ii, J = jj, r = r0, lambdaI = lambdai, 
                        lambdaJ = lambdaj, lambdamin = min(lambdaj) / 1.1)
-   #attr(LC, "fname") <- paste(Labels, sep = "_")
    attr(JC, "units") <- "microns"
    return(JC)
   }
@@ -353,6 +357,7 @@ Jpatient <- function(PP1, II){
   EstimJCross <- collapse.fv(EstimJCross0, same = c("r", "theo"), different = "bord")
   return(list(EstimJCross = EstimJCross, EstimHyper = EstimHyper, levs = Combi))
 }
+# This could be time consuming, approx. 3 mins
 JmultiMarker <- with(Cells, Jpatient(pp, Lambda.I))
 Cells$JmultiMarker <- lapply(JmultiMarker, '[[','EstimJCross')
 BigHyperMarkerJ <- do.call('rbind', lapply(JmultiMarker, '[[', 'EstimHyper'))
@@ -380,7 +385,7 @@ for (i in 1:6) { #9x4.5in
 ```
 
 ```{r}
-# independence for just a point pattern
+# independence for just a sample tissue (the third)
 Ex1 <- unmark(Cells$pp$`3`)
 marks(Ex1) <- data.frame(Immune = Cells$pp$`3`$marks$Immune, 
                          Li = safelookup(Cells$Lambda.I$`3`[[3]], Ex1),
@@ -391,7 +396,6 @@ W0 <- erosion.owin(Ex1$window, r = 350)
 
 
 JI <- function(X, Ii, Jj, r = NULL, W1 = W0){
-  #X <- Xa[erosion(Xa$window, r = 300)]
   X <- X[W1]
   li <- X$marks$Li[X$marks$Immune == Ii]
   lj <- X$marks$Lj[X$marks$Immune == Jj]
@@ -400,41 +404,17 @@ JI <- function(X, Ii, Jj, r = NULL, W1 = W0){
                lambdaI = li, lambdaJ = lj, lambdamin = lm, r=r)
 }
 
+# We reduced here the number of simulations to only 99 for illustration purposes
 E34 <- envelope(Ex1, JI, funargs = list(Ii = II, Jj= JJ, r = r0),
               simulate = expression(rshift(Ex1, radius = 350, edge = "erode")), 
-              nsim = 2999, savefuns = T)
+              nsim = 99, savefuns = T)
 
-Eget12 <- rank_envelope(E12, type = "rank")
-Eget13 <- rank_envelope(E13, type = "rank")
-Eget14 <- rank_envelope(E14, type = "rank")
-Eget23 <- rank_envelope(E23, type = "rank")
-Eget24 <- rank_envelope(E24, type = "rank")
 Eget34 <- rank_envelope(E34, type = "rank")
 ```
-```{r}
-EE0 <- rbind(E12, E13, E14, E23, E24, E34)
-PV0 <- sapply(list(Eget12, Eget13, Eget14, Eget23, Eget24, Eget34), function(x) attr(x, "p"))
-LL <- c(paste0(levels(Ex1$marks)[1],", ", levels(Ex1$marks)[2], " (p-value:", round(PV0[1], 2),")"),
-        paste0(levels(Ex1$marks)[1],", ", levels(Ex1$marks)[3], " (p-value:", round(PV0[2], 2),")"),
-        paste0(levels(Ex1$marks)[1],", ", levels(Ex1$marks)[4], " (p-value:", round(PV0[3], 2),")"),
-        paste0(levels(Ex1$marks)[2],", ", levels(Ex1$marks)[3], " (p-value:", round(PV0[4], 2),")"),
-        paste0(levels(Ex1$marks)[2],", ", levels(Ex1$marks)[4], " (p-value:", round(PV0[5], 2),")"),
-        paste0(levels(Ex1$marks)[3],", ", levels(Ex1$marks)[4], " (p-value:", round(PV0[6], 2),")"))
 
-EE0$Cells <- factor(rep(1:6, rep(513, 6)), levels = 1:6, labels = LL) 
-EE0$ptest <- ifelse(((EE0$obs < EE0$lo) | (EE0$obs > EE0$hi)), 1, 0)
 
-EE0$ptest <- factor(EE0$ptest, levels = 0:1, labels = c("out", "in"))
-
-#8x4.5
-ggplot(EE0) + geom_ribbon(aes(x = r, ymin = lo, ymax = hi), alpha = .3) + 
-  facet_wrap( ~ Cells, ncol = 3, scales = "free") +
-  geom_path(aes(x = r, y = obs, col = ptest, group = 1)) +
-  scale_color_manual(values=c("black", "red"))+
-  geom_line(aes(x = r, y = mmean), linetype = "dashed", col = "black", linewidth = 0.2)+
-  theme_bw()+
-  theme(legend.position = "none",
-        axis.title = element_blank())
+```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=4, echo=FALSE}
+plot(Eget34)
 ```
 
 
