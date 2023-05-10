@@ -331,16 +331,6 @@ for (i in 1:6) { #9x4.5in
 }
 ```
 
-```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=4, echo=FALSE}
-Kall <- alltypes(rescale(unmark(Cells$pp$`1`) %mark% Cells$pp$`1`$marks$Immune), 
-                 fun = "Lcross.inhom")
-
-plot(Kall)
-```
-
-
-From this linear model, we can conclude that there are more CD68+ immune-type cells than any other type and cells with CD8+ and CD3+ markers are slightly elevated compared to others. Now, cells with CD8+ CD3+ CD668+ markers are less frequent than the reference level, that is, CD19+. There is more density of immune cells in the tumour tissue than in the stroma, and although the months of survival turned out to be moderately significant, the coefficient is so small that it does not seem to matter within the model.
-
 
 ```{r, eval = FALSE, echo = FALSE}
 Jpatient <- function(PP1, II){
