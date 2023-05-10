@@ -243,6 +243,7 @@ plot(Lfuns, . - r ~ r, legend = F, ylab = "Inhomogeneous centred L", main = "", 
 
 ### Multivariate case
 
+We compute now the $L$-functions for Stroma vs Tumour tissues
 ```{r, eval = FALSE, echo = FALSE}
 LpatientTissue <- function(PP1, II){
   PPP <- unmark(PP1) %mark% PP1$marks$Tissue
@@ -263,6 +264,7 @@ LpatientTissue <- function(PP1, II){
                            debulking = factor(attributes(PP1)$"debulking"))
   return(list(LCrossTissue = EstimKCross0, HyperTissue = EstimHyper))
 }
+
 LmultiTissue <- with(Cells, LpatientTissue(pp, Lambda.T))
 Cells$LmultiTissue <- lapply(LmultiTissue, '[[','LCrossTissue')
 BigHyperTissue <- do.call('rbind', lapply(LmultiTissue, '[[', 'HyperTissue'))
@@ -271,13 +273,11 @@ BigHyperTissue <- do.call('rbind', lapply(LmultiTissue, '[[', 'HyperTissue'))
 The cross $L$-functions (centred by subtracting $r$) of all point patterns are displayed in the next figure,
 ```{r, fig.align='center', fig.width=5, fig.height=4, echo=FALSE}
 AlltissuesK <- collapse.fv(Cells$LmultiTissue, same = c("r", "theo"), different = "trans")
-#par(mfrow = c(2, 2))
 plot(AlltissuesK, . - r ~ r, legend = F, 
      ylab = "Inhomogeneous centred cross L", main = "Tumour vs Stroma", lwd = 0.5)
 ```
 
-This drawing shows us a much more exciting behaviour than when we do not consider the interaction between points. It shows us an overall inhibition between the tumour's immune cells and the stroma's immune cells. This result could be due to the fact that the tissues are usually separated within the ovary; however, we have taken into account the first-order intensity to carry out the estimation, which, in theory, would eliminate that geographical component.
-
+We compute now the $L$-functions for immunity markers
 ```{r, eval = FALSE, echo = FALSE}
 Lpatient <- function(PP1, II){
   PP <- unmark(PP1) %mark% PP1$marks$Immune
@@ -287,7 +287,6 @@ Lpatient <- function(PP1, II){
    LC <- Lcross.inhom(PP, i = Labels[1], j = Labels[2], 
                       lambdaI = II[[Labels[1]]], lambdaJ = II[[Labels[2]]],
                       correction = "translate", r = r0)
-   #attr(LC, "fname") <- paste(Labels, sep = "_")
    attr(LC, "units") <- "microns"
    return(LC)
   }
@@ -302,13 +301,8 @@ Lpatient <- function(PP1, II){
                                            levels = 1:4, labels = c("I","II", "III", "IV")),
                            death = factor(rep(attributes(PP1)$"death", length(Combi)), 
                                            levels = 0:1, labels = c("No","Yes")),
-                           #BRCA_mutation = factor(rep(attributes(PP1)$"BRCA_mutation",, 
-                          #                            length(Combi)), 
-                          #                         levels = 0:1, labels = c("No","Yes")),
                            parpi_inhibitor = factor(rep(attributes(PP1)$"parpi_inhibitor", 
                                                         length(Combi))))
-                           #debulking <- factor(rep(attributes(PP1)$"debulking", length(Combi))))
-  
   EstimKCross <- collapse.fv(EstimKCross0, same = c("r", "theo"), different = "trans")
   return(list(EstimKCross = EstimKCross, EstimHyper = EstimHyper, levs = Combi))
 }
@@ -317,21 +311,6 @@ Cells$LmultiMarker <- lapply(LmultiMarker, '[[','EstimKCross')
 BigHyperMarker <- do.call('rbind', lapply(LmultiMarker, '[[', 'EstimHyper'))
 ```
 
-The cross $L$-functions (centred by subtracting $r$) of the point patterns are displayed in the next figure,
-```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=5, echo=FALSE}
-par(mfrow = c(3, 3), oma = c(3.5, 1.5, 0, 1), mar = c(1.5,1,3,1)) #9x6in
-Nnames <- sapply(LmultiMarker$`1`$levs, function(a) paste(a[1], a[2]))
-for (i in sort(sample(51, 9))) {
-  plot(Cells$LmultiMarker[[i]], . - r ~ r, legend = F,
-       ylab = "", main = paste("Patient",i), lwd = 0.7)
-}
-par(fig = c(0, 1, 0, 1), oma = c(0, 0, 0, 0), mar = c(0, 0, 0, 0), new = TRUE)
-plot(0, 0, type = 'l', bty = 'n', xaxt = 'n', yaxt = 'n')
-legend("bottom", inset=.00,
-       legend = Nnames, col=2:7, horiz=T, cex=.80, lty = 2:7)
-```
-
-In this case, as in the previous one, the functions show departures from the independence negatively, meaning that there is some inhibitory behaviour behind the first-order intensity, i.e., some repulsion between types. This means that despite some cases, we observe that immune cell types repel each other at small distances (from 100 to 300$\mu$m in general).
 
 The cross $L$-functions (centred by subtracting $r$) of the point patterns are displayed in the next figure,
 ```{r, fig.align='center', result.width='80%', fig.width=9, fig.height=4, echo=FALSE}
