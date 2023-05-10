@@ -102,43 +102,34 @@ AA
 
 # Multitype point patterns
 
-In this case, we need to analyse point patterns consisting of several different types of points, and they are called multitype point patterns. Such patterns are usually presented as marked point patterns with categorical marks. A point process $\mathbf{Y}$ is split into several sub-processes of types $1,...m,$ denoted by $\mathbf{X}^{(1)},\ldots,\mathbf{X}^{(m)}$. Every functional descriptor can be calculated for each point pattern $X^{(j)}$.
+In this case, we need to analyse point patterns consisting of several different types of points, and they are called multitype point patterns. Such patterns are usually presented as *marked point patterns* with categorical marks. A point process $\mathbf{X}$ is split into several sub-processes of types $1,...m,$ denoted by $\mathbf{X}^{(1)},\ldots,\mathbf{X}^{(m)}$. Every functional descriptor can be calculated for each point pattern $X^{(j)}$.
 
 # First-order intensity functions
-The first-order intensity function describes the expected value of points of some kind anywhere in the observation window. There are several techniques to calculate it; the non-parametric methods are the most used in the context of point processes. 
+The first-order intensity function describes the expected value of points of some kind anywhere in the observation window. There are several techniques to calculate it; the non-parametric methods are the most used in the context of point processes. We employ an adaptive kernel estimator
 
-We employ an adaptive kernel estimator defined as follows,
-$$
-\hat{\lambda}_{j}\left(\mathbf{u}\right) =\frac{1}{e \left(\mathbf{u}\right) }\sum_{i=1}^{n}{\kappa_{\epsilon(\mathbf{u}_i)}\left(\mathbf{u}-\mathbf{u}_{i}\right)},\qquad \mathbf{u} \in W, j=1,\ldots m,
-$$
-where $\kappa()$ is the Gaussian kernel and $e()$ represents an edge correction factor and it is given by
-$$
-e \left(\mathbf{u}\right)  = \int_{W} \kappa_{\epsilon(\mathbf{u'})}\left(\mathbf{u}-\mathbf{u'}\right) d \mathbf{u'}.
-$$
-The bandwidth function $\epsilon()$ is defined as
-$$
-\epsilon(\mathbf{u})=\frac{\epsilon^{\star}}{\gamma} \sqrt{\frac{n}{\lambda^{\star}_j(\mathbf{u})}},
-$$
-where $\epsilon^{\star}$ is a *global bandwidths*, $\lambda^{\star}_j(\mathbf{u})$ is a pilot estimate of the intensity, and $\gamma$ is the geometric mean term for the pilot intensity evaluated in the points of the point pattern. We calculate the global bandwidths by using Scott's isotropic rule. The pilot estimate is the usual fixed bandwidth $(\epsilon^{\star})$ kernel estimate.
-
-# ```{r, eval=FALSE, echo = FALSE}
-# #bw.h0 <- mean(sapply(PP, bw.scott.iso))
-# ```
-
+```{r, eval=FALSE, echo = FALSE}
+# We choose a global bandwidth through the maximal principle 
+bw.h0 <- mean(sapply(DataCells, OS))
+# Making a hyperframe with all the point patterns in a column
+Cells <- hyperframe(pp = DataCells)
+```
 
 ```{r, eval=FALSE, echo  = FALSE}
+# To estimate the intensity functions we use paralelisation
 intenI <- function(PPP, h0 = NULL, Marks = "Immune"){
   Index <- levels(PPP$marks[[Marks]])
   In <- mclapply(Index, function(Y) {
     densityAdaptiveKernel.ppp(subset(PPP, PPP$marks[[Marks]] == Y), h0 = h0)}, 
-    mc.cores = 50)
+    mc.cores = detectCores() - 1)
   names(In) <- Index
   return(as.solist(In))
 }
 
-Cells$Lambda.I <- with(Cells, intenI(pp, h0 = NULL, Marks = "Immune"))
-Cells$Lambda.T <- with(Cells, intenI(pp, h0 = NULL, Marks = "Tissue"))
-Cells$Lambda.bullet <- with(Cells, densityAdaptiveKernel.ppp(pp))
+# Computing the intensities and saving them in the hyperframe as well
+# This part is time consuming (Approx two minutes per case using 5 cores)
+Cells$Lambda.I <- with(Cells, intenI(pp, h0 = bw.h0, Marks = "Immune"))
+Cells$Lambda.T <- with(Cells, intenI(pp, h0 = bw.h0, Marks = "Tissue"))
+Cells$Lambda.bullet <- with(Cells, densityAdaptiveKernel.ppp(pp, bw = bw.h0))
 ```
 
 The next figure displays samples of the intensities of the subprocesses of points of type immune and exposed.
