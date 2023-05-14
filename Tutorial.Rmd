@@ -141,11 +141,7 @@ plot((Cells$Lambda.I$`6`[c(1,2,3,4)]), #9x3
      mar.panel=c(0,1,1,0.4), main = "", equal.ribbon = T, panel.end = Cells$pp$`6`$window)
 ```
 
-The superposition intensity is defined as the intensity of the point pattern regardless the types of points, i.e., $$
-\lambda_{\bullet} = \sum_{j=i}^m \lambda_j.
-$$
-
-Therefore, we can speak of the probability distribution of types.
+The superposition intensity is defined as the intensity of the point pattern regardless the types of points. Therefore, we can speak of the probability distribution of types.
 
 ```{r, eval=FALSE, echo = FALSE}
 # This is time consuming, approx 1 minute
@@ -180,17 +176,13 @@ p.adjust(sapply(Segregation,"[[", "p.value"), "bonferroni")
 Now we smooth the continuous marks
 
 ```{r, eval=FALSE, echo = FALSE, warning=FALSE}
-Cells$pstat3 <- with(Cells, Smooth.ppp(unmark(pp) %mark% pp$marks$pstat3, diggle = T, warn = F))
-Cells$ier3 <- with(Cells, Smooth.ppp(unmark(pp) %mark% pp$marks$ier3, diggle = T, warn = F))
+Cells$pstat3 <- with(Cells, Smooth.ppp(unmark(pp) %mark% pp$marks$pstat3, diggle = T, warn = F, dimyx = 256))
 ```
 
 ```{r, fig.align='center', result.width='100%', fig.width=9, echo=FALSE}
-#par(mfrow = c(2, 1)) #9x1.9in
-plot(Cells$pstat3[c(4, 11, 27, 48, 50)], col = hcl.colors(256, "Berlin"), 
-     box = F, main = "",equal.ribbon = F, ncols =5,
-     main.panel = "")
-plot(Cells$ier3[c(4, 11, 27, 48, 50)], col = hcl.colors(256, "Tofino", rev = T), 
-     box = F, main = "",equal.ribbon = F, ncols =5,
+#par(mfrow = c(2, 1)) #9x2.3in
+plot(Cells$pstat3[c(4, 27, 48, 50)], col = hcl.colors(256, "Berlin"), 
+     box = F, main = "",equal.ribbon = F, ncols =4,
      main.panel = "")
 ```
 
